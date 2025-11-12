@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # ==========================================================
-# benchmark.sh — Ollama ROCm benchmark suite
+# benchmark.sh — Ollama ROCm benchmark suite (with numbered runs)
 # ==========================================================
 
 set -e
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULT_DIR="$PROJECT_DIR/benchmarks"
-mkdir -p "$RESULT_DIR"
+RESULT_ROOT="$PROJECT_DIR/benchmarks"
+mkdir -p "$RESULT_ROOT"
 
-LOGFILE="$RESULT_DIR/benchmark_$(date +%F_%H-%M-%S).log"
-CSVFILE="$RESULT_DIR/results_$(date +%F_%H-%M-%S).csv"
+# --- Auto-increment benchmark folder ---
+NEXT_ID=$(find "$RESULT_ROOT" -maxdepth 1 -type d -name 'benchmark_*' | wc -l)
+NEXT_ID=$((NEXT_ID + 1))
+RUN_DIR="$RESULT_ROOT/benchmark_$NEXT_ID"
+mkdir -p "$RUN_DIR"
+
+LOGFILE="$RUN_DIR/benchmark_$(date +%F_%H-%M-%S).log"
+CSVFILE="$RUN_DIR/results_$(date +%F_%H-%M-%S).csv"
 
 GREEN="\e[32m"; YELLOW="\e[33m"; RED="\e[31m"; RESET="\e[0m"
 timestamp() { date +"[%Y-%m-%d %H:%M:%S]"; }
@@ -20,17 +26,18 @@ error() { echo -e "${RED}$(timestamp) [ERROR]${RESET} $1" | tee -a "$LOGFILE"; }
 
 API_URL="http://localhost:11434/api/generate"
 
-# Models to test
+# --- Models to test ---
 MODELS=( "deepseek-r1:7b" "deepseek-r1:14b" "gpt-oss:20b" "kimi-k2:1026b" )
 
-# Test prompts
-declare -A PROMPTS
-PROMPTS["reasoning"]="A train leaves Boston at 3 PM traveling 60 mph. Another leaves NYC at 2 PM at 45 mph toward Boston. When do they meet?"
-PROMPTS["instructions"]="Explain how to securely configure SSH key-based login on Ubuntu, step by step."
-PROMPTS["codegen"]="Write a Python function using recursion to compute Fibonacci numbers with memoization."
-PROMPTS["knowledge"]="Who developed the theory of relativity and in which year was it published?"
-PROMPTS["creative"]="Compose a 40-word poem about a machine learning model dreaming in binary."
-PROMPTS["logictrap"]="If 5 printers take 5 minutes to print 5 pages, how long do 100 printers take to print 100 pages? Explain logically."
+# --- Prompts to test ---
+declare -A PROMPTS=(
+  ["reasoning"]="A train leaves Boston at 3 PM traveling 60 mph. Another leaves NYC at 2 PM at 45 mph toward Boston. When do they meet?"
+  ["instructions"]="Explain how to securely configure SSH key-based login on Ubuntu, step by step."
+  ["codegen"]="Write a Python function using recursion to compute Fibonacci numbers with memoization."
+  ["knowledge"]="Who developed the theory of relativity and in which year was it published?"
+  ["creative"]="Compose a 40-word poem about a machine learning model dreaming in binary."
+  ["logictrap"]="If 5 printers take 5 minutes to print 5 pages, how long do 100 printers take to print 100 pages? Explain logically."
+)
 
 echo "timestamp,model,test_name,tokens,seconds,tokens_per_sec,cpu_percent,mem_mb,vram_mb" > "$CSVFILE"
 
@@ -58,7 +65,7 @@ print_row() {
   printf "%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" "$@"
 }
 
-info "===== Ollama ROCm Benchmark Started ====="
+info "===== Ollama ROCm Benchmark Run #$NEXT_ID Started ====="
 print_header | tee -a "$LOGFILE"
 
 for model in "${MODELS[@]}"; do
@@ -98,6 +105,5 @@ for model in "${MODELS[@]}"; do
   done
 done
 
-info "===== Benchmark Completed ====="
-info "Log: $LOGFILE"
-info "CSV: $CSVFILE"
+info "===== Benchmark Run #$NEXT_ID Completed ====="
+info "Saved to: $RUN_DIR"
