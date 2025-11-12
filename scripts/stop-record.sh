@@ -1,5 +1,5 @@
 #!/bin/bash
-# stop_quad_record.sh — stop all asciinema recordings gracefully
+#stop all asciinema recordings and tmux panes
 
 SESSION_NAME="quadrec"
 
