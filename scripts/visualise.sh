@@ -1,109 +1,116 @@
-#!/usr/bin/env bash
+#!/usr/bin/env python3
 # ==========================================================
-# benchmark.sh — Ollama ROCm benchmark suite (with numbered runs)
+# Visualise specific benchmark run
 # ==========================================================
+import os
+import sys
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
 
-set -e
+PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BENCH_ROOT = os.path.join(PROJECT_DIR, "benchmarks")
 
-PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-RESULT_ROOT="$PROJECT_DIR/benchmarks"
-mkdir -p "$RESULT_ROOT"
-
-# --- Auto-increment benchmark folder ---
-NEXT_ID=$(find "$RESULT_ROOT" -maxdepth 1 -type d -name 'benchmark_*' | wc -l)
-NEXT_ID=$((NEXT_ID + 1))
-RUN_DIR="$RESULT_ROOT/benchmark_$NEXT_ID"
-mkdir -p "$RUN_DIR"
-
-LOGFILE="$RUN_DIR/benchmark_$(date +%F_%H-%M-%S).log"
-CSVFILE="$RUN_DIR/results_$(date +%F_%H-%M-%S).csv"
-
-GREEN="\e[32m"; YELLOW="\e[33m"; RED="\e[31m"; RESET="\e[0m"
-timestamp() { date +"[%Y-%m-%d %H:%M:%S]"; }
-info()  { echo -e "${GREEN}$(timestamp) [INFO]${RESET} $1" | tee -a "$LOGFILE"; }
-warn()  { echo -e "${YELLOW}$(timestamp) [WARN]${RESET} $1" | tee -a "$LOGFILE"; }
-error() { echo -e "${RED}$(timestamp) [ERROR]${RESET} $1" | tee -a "$LOGFILE"; }
-
-API_URL="http://localhost:11434/api/generate"
-
-# --- Models to test ---
-MODELS=( "deepseek-r1:7b" "deepseek-r1:14b" "gpt-oss:20b" "kimi-k2:1026b" )
-
-# --- Prompts to test ---
-declare -A PROMPTS=(
-  ["reasoning"]="A train leaves Boston at 3 PM traveling 60 mph. Another leaves NYC at 2 PM at 45 mph toward Boston. When do they meet?"
-  ["instructions"]="Explain how to securely configure SSH key-based login on Ubuntu, step by step."
-  ["codegen"]="Write a Python function using recursion to compute Fibonacci numbers with memoization."
-  ["knowledge"]="Who developed the theory of relativity and in which year was it published?"
-  ["creative"]="Compose a 40-word poem about a machine learning model dreaming in binary."
-  ["logictrap"]="If 5 printers take 5 minutes to print 5 pages, how long do 100 printers take to print 100 pages? Explain logically."
+# --- Find available benchmark folders ---
+benchmarks = sorted(
+    [d for d in os.listdir(BENCH_ROOT) if d.startswith("benchmark_")],
+    key=lambda x: int(x.split("_")[1])
 )
 
-echo "timestamp,model,test_name,tokens,seconds,tokens_per_sec,cpu_percent,mem_mb,vram_mb" > "$CSVFILE"
+if not benchmarks:
+    print("❌ No benchmark folders found.")
+    sys.exit(1)
 
-gpu_metrics() {
-  if command -v rocm-smi &>/dev/null; then
-    rocm-smi --showmemuse --json 2>/dev/null | grep -Eo '"used_memory": [0-9]+' | head -n1 | awk '{print $2}'
-  else
-    echo "0"
-  fi
-}
+# --- Select benchmark folder ---
+if len(sys.argv) > 1:
+    try:
+        index = int(sys.argv[1]) - 1
+        bench_folder = benchmarks[index]
+    except (ValueError, IndexError):
+        print("⚠️ Invalid argument. Using latest benchmark instead.")
+        bench_folder = benchmarks[-1]
+else:
+    bench_folder = benchmarks[-1]
 
-cpu_mem_usage() {
-  local pid=$(pgrep -x ollama | head -n1)
-  [ -z "$pid" ] && { echo "0 0"; return; }
-  ps -p "$pid" -o %cpu=,rss= | awk '{print $1" "$2/1024}'
-}
+RUN_DIR = os.path.join(BENCH_ROOT, bench_folder)
+print(f"📊 Visualizing {bench_folder}")
 
-print_header() {
-  printf "\n%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" \
-    "MODEL" "TEST" "TOKENS" "TOK/s" "LAT(s)" "CPU(%)" "RAM(MB)" "VRAM(MB)"
-  printf "%0.s-" {1..90}; echo
-}
+# --- Find CSV ---
+csv_files = [f for f in os.listdir(RUN_DIR) if f.endswith(".csv")]
+if not csv_files:
+    print(f"❌ No CSV files found in {RUN_DIR}")
+    sys.exit(1)
+csv_path = os.path.join(RUN_DIR, csv_files[0])
 
-print_row() {
-  printf "%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" "$@"
-}
+# --- Load Data ---
+df = pd.read_csv(csv_path)
+for col in ["tokens_per_sec", "seconds", "cpu_percent", "mem_mb", "vram_mb"]:
+    df[col] = pd.to_numeric(df[col], errors="coerce")
 
-info "===== Ollama ROCm Benchmark Run #$NEXT_ID Started ====="
-print_header | tee -a "$LOGFILE"
+# --- Compute Summary ---
+summary = (
+    df.groupby(["model", "test_name"])
+    .agg({
+        "tokens_per_sec": "mean",
+        "seconds": "mean",
+        "cpu_percent": "mean",
+        "mem_mb": "mean",
+        "vram_mb": "mean"
+    })
+    .reset_index()
+)
 
-for model in "${MODELS[@]}"; do
-  info "Benchmarking model: $model"
-  if ! ollama list | grep -q "$model"; then
-    warn "Model $model not found locally. Pulling..."
-    ollama pull "$model" >/dev/null 2>&1 || error "Pull failed: $model"
-  fi
+PLOT_DIR = os.path.join(RUN_DIR, "plots")
+os.makedirs(PLOT_DIR, exist_ok=True)
 
-  for test in "${!PROMPTS[@]}"; do
-    prompt="${PROMPTS[$test]}"
-    info "Running test '$test'..."
+# --- Plot Helper ---
+def save_plot(fig, name):
+    path = os.path.join(PLOT_DIR, f"{name}.png")
+    fig.savefig(path, bbox_inches="tight", dpi=150)
+    print(f"🖼️ Saved: {path}")
 
-    vram_before=$(gpu_metrics)
-    read cpu_before mem_before < <(cpu_mem_usage)
+# --- Tokens/sec ---
+fig, ax = plt.subplots(figsize=(10, 6))
+for test, group in summary.groupby("test_name"):
+    ax.bar(group["model"], group["tokens_per_sec"], label=test)
+ax.set_title("Tokens/sec by Model and Test")
+ax.set_ylabel("Tokens/sec")
+ax.legend()
+plt.xticks(rotation=45, ha="right")
+save_plot(fig, "tokens_per_sec")
+plt.close(fig)
 
-    start=$(date +%s.%N)
-    response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" \
-      -d "{\"model\": \"$model\", \"prompt\": \"$prompt\", \"stream\": false}")
-    end=$(date +%s.%N)
+# --- Latency ---
+fig, ax = plt.subplots(figsize=(10, 6))
+for test, group in summary.groupby("test_name"):
+    ax.bar(group["model"], group["seconds"], label=test)
+ax.set_title("Average Latency (s)")
+ax.set_ylabel("Seconds")
+ax.legend()
+plt.xticks(rotation=45, ha="right")
+save_plot(fig, "latency")
+plt.close(fig)
 
-    elapsed=$(echo "$end - $start" | bc)
-    output=$(echo "$response" | jq -r '.response')
-    tokens=$(echo "$output" | wc -w)
-    tokensec=$(echo "scale=2; $tokens / $elapsed" | bc)
+# --- CPU Usage ---
+fig, ax = plt.subplots(figsize=(10, 6))
+for test, group in summary.groupby("test_name"):
+    ax.bar(group["model"], group["cpu_percent"], label=test)
+ax.set_title("Average CPU Load (%)")
+ax.set_ylabel("CPU %")
+ax.legend()
+plt.xticks(rotation=45, ha="right")
+save_plot(fig, "cpu_usage")
+plt.close(fig)
 
-    vram_after=$(gpu_metrics)
-    read cpu_after mem_after < <(cpu_mem_usage)
+# --- Memory / VRAM ---
+fig, ax = plt.subplots(figsize=(10, 6))
+mem_avg = summary.groupby("model")[["mem_mb", "vram_mb"]].mean()
+mem_avg.plot(kind="bar", stacked=True, ax=ax, width=0.6)
+ax.set_title("Average RAM and VRAM Usage (MB)")
+ax.set_ylabel("MB")
+plt.xticks(rotation=45, ha="right")
+save_plot(fig, "memory_usage")
+plt.close(fig)
 
-    cpu_avg=$(echo "scale=1; ($cpu_before + $cpu_after)/2" | bc)
-    mem_used=$(echo "$mem_after - $mem_before" | bc)
-    vram_used=$(echo "$vram_after - $vram_before" | bc)
-    timestamp_now=$(date +%F_%T)
+print(f"\n✅ Plots saved in {PLOT_DIR}")
 
-    print_row "$model" "$test" "$tokens" "$tokensec" "$elapsed" "$cpu_avg" "$mem_used" "$vram_used" | tee -a "$LOGFILE"
-    echo "$timestamp_now,$model,$test,$tokens,$elapsed,$tokensec,$cpu_avg,$mem_used,$vram_used" >> "$CSVFILE"
-  done
-done
-
-info "===== Benchmark Run #$NEXT_ID Completed ====="
-info "Saved to: $RUN_DIR"
