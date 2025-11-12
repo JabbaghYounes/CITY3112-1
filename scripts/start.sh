@@ -38,7 +38,7 @@ tmux select-layout -t "$SESSION_NAME":0 tiled
 
 # Pane assignments
 tmux send-keys -t "$SESSION_NAME":0.0 \
-  "asciinema rec '$RECORD_DIR/benchmark_${TIMESTAMP}.cast' -c './scripts/benchmark.sh'" C-m
+  "asciinema rec '$RECORD_DIR/pane0_${TIMESTAMP}.cast' -c 'bash'" C-m
 tmux send-keys -t "$SESSION_NAME":0.1 \
   "asciinema rec '$RECORD_DIR/htop_${TIMESTAMP}.cast' -c 'htop'" C-m
 tmux send-keys -t "$SESSION_NAME":0.2 \
