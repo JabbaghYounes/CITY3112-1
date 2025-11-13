@@ -13,23 +13,23 @@ git clone https://github.com/JabbaghYounes/CITY3112-1.git
 ```
 
 ## Usage
-### 1.
+### 1. Setup Enviornment
 ```bash
 chmod -R +x /scripts
 ```
-### 2.
+### 2. Start Process
 ```bash
 ./start.sh
 ```
-### 3.
+### 3. Run Benchmark
 ```bash
 ./benchmark-gpu.sh
 ```
-### 4.
+### 4. Display Results
 ```bash
 ./visualise.sh
 ```
-### 5.
+### 5. End
 ```bash
 ./stop.sh
 ```
