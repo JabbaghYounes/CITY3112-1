@@ -15,46 +15,45 @@ NEXT_ID=$((NEXT_ID + 1))
 RUN_DIR="$RESULT_ROOT/benchmark_$NEXT_ID"
 mkdir -p "$RUN_DIR"
 
-# --- Log and CSV ---
 LOGFILE="$RUN_DIR/benchmark_cpu_$(date +%F_%H-%M-%S).log"
 CSVFILE="$RUN_DIR/results_cpu_$(date +%F_%H-%M-%S).csv"
 
-# --- Colors & logging functions ---
 GREEN="\e[32m"; YELLOW="\e[33m"; RED="\e[31m"; RESET="\e[0m"
 timestamp() { date +"[%Y-%m-%d %H:%M:%S]"; }
 info()  { echo -e "${GREEN}$(timestamp) [INFO]${RESET} $1" | tee -a "$LOGFILE"; }
 warn()  { echo -e "${YELLOW}$(timestamp) [WARN]${RESET} $1" | tee -a "$LOGFILE"; }
 error() { echo -e "${RED}$(timestamp) [ERROR]${RESET} $1" | tee -a "$LOGFILE"; }
 
-# --- Ollama API ---
 API_URL="http://localhost:11434/api/generate"
 
-# --- Load models from external file ---
-MODEL_FILE="$PROJECT_DIR/scripts/models.txt"
-if [ ! -f "$MODEL_FILE" ]; then
-  error "Models file not found: $MODEL_FILE"
-  exit 1
-fi
-MODELS=($(grep -v '^\s*#' "$MODEL_FILE" | grep -v '^\s*$'))
+# --- Hardcoded Models ---
+MODELS=(
+  "gpt-oss:20b"
+  "gpt-oss:120b"
+  "deepseek-r1:1.5b"
+  "deepseek-r1:7b"
+  "deepseek-r1:8b"
+  "deepseek-r1:14b"
+  "deepseek-r1:32b"
+  "deepseek-r1:70b"
+  "deepseek-r1:671b"
+  "kimi-k2:1026b"
+)
 
-# --- Load prompts from CSV file ---
-PROMPT_FILE="$PROJECT_DIR/scripts/prompts.csv"
-if [ ! -f "$PROMPT_FILE" ]; then
-  error "Prompts file not found: $PROMPT_FILE"
-  exit 1
-fi
+# --- Hardcoded Prompts ---
+declare -A PROMPTS=(
+  ["reasoning"]="A train leaves Boston at 3 PM traveling 60 mph. Another leaves NYC at 2 PM at 45 mph toward Boston. When do they meet?"
+  ["instructions"]="Explain how to securely configure SSH key-based login on Ubuntu, step by step."
+  ["codegen"]="Write a Python function using recursion to compute Fibonacci numbers with memoization."
+  ["knowledge"]="Who developed the theory of relativity and in which year was it published?"
+  ["creative"]="Compose a 40-word poem about a machine learning model dreaming in binary."
+  ["logictrap"]="If 5 printers take 5 minutes to print 5 pages, how long do 100 printers take to print 100 pages? Explain logically."
+)
 
-declare -A PROMPTS
-while IFS=, read -r test_name prompt; do
-  [[ "$test_name" == "test_name" || -z "$test_name" ]] && continue
-  PROMPTS["$test_name"]="$prompt"
-done < "$PROMPT_FILE"
-
-# --- CSV Header ---
 echo "timestamp,model,test_name,tokens,seconds,tokens_per_sec,cpu_percent,mem_mb,vram_mb" > "$CSVFILE"
 
-# --- Helper functions ---
 gpu_metrics() { echo "0"; }  # GPU not used
+
 cpu_mem_usage() {
   local pid=$(pgrep -x ollama | head -n1)
   [ -z "$pid" ] && { echo "0 0"; return; }
@@ -71,7 +70,6 @@ print_row() {
   printf "%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" "$@"
 }
 
-# --- Benchmark start ---
 info "===== Ollama CPU Benchmark Run #$NEXT_ID Started ====="
 print_header | tee -a "$LOGFILE"
 
@@ -90,7 +88,7 @@ for model in "${MODELS[@]}"; do
     read cpu_before mem_before < <(cpu_mem_usage)
     start=$(date +%s.%N)
 
-    # Force CPU execution by passing device parameter (if supported)
+    # Force CPU-only execution
     response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" \
       -d "{\"model\": \"$model\", \"prompt\": \"$prompt\", \"device\": \"cpu\", \"stream\": false}")
 
