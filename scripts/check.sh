@@ -187,13 +187,23 @@ else
     ((FAILED++))
 fi
 
-# Check for rocm-smi
-if check_cmd "rocm-smi" "rocm-smi"; then
-    if rocm-smi &>/dev/null; then
+# Check for rocm-smi (can be in /opt/rocm/bin or PATH)
+if [ -f "/opt/rocm/bin/rocm-smi" ] || command -v rocm-smi &>/dev/null; then
+    echo -e "${GREEN}✓${RESET} rocm-smi"
+    ((PASSED++))
+    ROCM_SMI_CMD=""
+    if [ -f "/opt/rocm/bin/rocm-smi" ]; then
+        ROCM_SMI_CMD="/opt/rocm/bin/rocm-smi"
+        info "rocm-smi location: /opt/rocm/bin/rocm-smi"
+    else
+        ROCM_SMI_CMD="rocm-smi"
+    fi
+    
+    if $ROCM_SMI_CMD &>/dev/null 2>&1; then
         info "rocm-smi is functional"
         # Try to get GPU info
-        if rocm-smi --showid &>/dev/null; then
-            GPU_COUNT=$(rocm-smi --showid 2>/dev/null | grep -c "Card series" || echo "0")
+        if $ROCM_SMI_CMD --showid &>/dev/null 2>&1; then
+            GPU_COUNT=$($ROCM_SMI_CMD --showid 2>/dev/null | grep -c "Card series" || echo "0")
             if [ "$GPU_COUNT" -gt 0 ]; then
                 info "Detected $GPU_COUNT GPU(s)"
             fi
@@ -201,6 +211,9 @@ if check_cmd "rocm-smi" "rocm-smi"; then
     else
         warn "rocm-smi found but may not be functional"
     fi
+else
+    echo -e "${RED}✗${RESET} rocm-smi (not found)"
+    ((FAILED++))
 fi
 
 # Check for other ROCm utilities
