@@ -6,10 +6,6 @@ Collectiong of scripts to setup enviornment, benchmark hardware and visualise re
 
 ![Demo GIF](https://via.placeholder.com/600x300?text=Demo+GIF)
 
-## Table of Contents
-- [Installation](#installation)
-- [Usage](#usage)
-
 ## Installation
 ### Using Git
 ```bash
