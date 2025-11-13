@@ -57,11 +57,11 @@ sudo apt update -y &
 spinner $!
 
 info "Installing dependencies..."
-sudo apt install -y tmux asciinema ttyrec python3 python3-pip curl snapd &
+sudo apt install -y tmux asciinema ttyrec python3 python3-pip curl snapd jq bc gnupg htop lm-sensors wget &
 spinner $!
 
 info "Installing Python packages..."
-pip install --upgrade pip matplotlib pandas &
+python3 -m pip install --upgrade pip matplotlib pandas &
 spinner $!
 
 # ==========================================================
@@ -147,14 +147,11 @@ count=0
 for model in "${MODELS[@]}"; do
   count=$((count + 1))
   info "Pulling model ($count/$TOTAL_MODELS): $model"
-  ollama pull "$model" >/dev/null 2>&1 &
-  pid=$!
-  while ps -p $pid > /dev/null 2>&1; do
-    progress_bar "$count" "$TOTAL_MODELS"
-    sleep 2
-  done
-  echo ""
-  info "Completed: $model"
+  if ollama pull "$model"; then
+    info "Completed: $model"
+  else
+    error "Failed to pull: $model"
+  fi
 done
 
 # ==========================================================

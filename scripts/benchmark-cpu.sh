@@ -70,7 +70,14 @@ print_row() {
   printf "%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" "$@"
 }
 
+# Check if Ollama service is running
+if ! pgrep -x ollama > /dev/null; then
+  error "Ollama service is not running. Please start it first: ollama serve"
+  exit 1
+fi
+
 info "===== Ollama CPU Benchmark Run #$NEXT_ID Started ====="
+info "Note: Ensure Ollama is configured for CPU-only (set OLLAMA_NUM_GPU=0 before starting ollama serve)"
 print_header | tee -a "$LOGFILE"
 
 for model in "${MODELS[@]}"; do
@@ -88,15 +95,34 @@ for model in "${MODELS[@]}"; do
     read cpu_before mem_before < <(cpu_mem_usage)
     start=$(date +%s.%N)
 
-    # Force CPU-only execution
+    # API call (Ollama API doesn't support device parameter - CPU/GPU is determined by service config)
     response=$(curl -s -X POST "$API_URL" -H "Content-Type: application/json" \
-      -d "{\"model\": \"$model\", \"prompt\": \"$prompt\", \"device\": \"cpu\", \"stream\": false}")
+      -d "{\"model\": \"$model\", \"prompt\": \"$prompt\", \"stream\": false}")
+
+    # Check if API call was successful
+    if ! echo "$response" | jq -e '.response' > /dev/null 2>&1; then
+      error "API call failed for $model/$test. Response: $response"
+      continue
+    fi
 
     end=$(date +%s.%N)
     elapsed=$(echo "$end - $start" | bc)
+    
+    # Handle division by zero
+    if [ "$(echo "$elapsed <= 0" | bc)" -eq 1 ]; then
+      warn "Elapsed time is zero or negative, skipping calculation"
+      elapsed="0.01"
+    fi
 
-    output=$(echo "$response" | jq -r '.response')
-    tokens=$(echo "$output" | wc -w)
+    # Get token count from API response (eval_count = generated tokens)
+    tokens=$(echo "$response" | jq -r '.eval_count // 0')
+    if [ "$tokens" = "0" ] || [ -z "$tokens" ]; then
+      # Fallback: count words if eval_count is not available
+      output=$(echo "$response" | jq -r '.response // ""')
+      tokens=$(echo "$output" | wc -w)
+      warn "Using word count as fallback for token count"
+    fi
+    
     tokensec=$(echo "scale=2; $tokens / $elapsed" | bc)
 
     read cpu_after mem_after < <(cpu_mem_usage)

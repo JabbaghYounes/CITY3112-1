@@ -15,12 +15,21 @@ CPU_ROOT = PROJECT_DIR / "benchmarks_cpu"
 # -------------------------
 def load_csvs(root):
     csvs = []
+    if not root.exists():
+        print(f"Warning: Directory {root} does not exist")
+        return pd.DataFrame()
+    
     for folder in sorted(root.glob("benchmark_*")):
         csv_file = next(folder.glob("results_*.csv"), None)
         if csv_file:
-            df = pd.read_csv(csv_file)
-            df['benchmark'] = folder.name
-            csvs.append(df)
+            try:
+                df = pd.read_csv(csv_file)
+                if not df.empty:
+                    df['benchmark'] = folder.name
+                    csvs.append(df)
+            except Exception as e:
+                print(f"Warning: Failed to load {csv_file}: {e}")
+                continue
     if csvs:
         return pd.concat(csvs, ignore_index=True)
     return pd.DataFrame()
@@ -30,13 +39,24 @@ cpu_df = load_csvs(CPU_ROOT)
 
 if gpu_df.empty and cpu_df.empty:
     print("No benchmark results found.")
+    print(f"Checked directories: {GPU_ROOT} and {CPU_ROOT}")
     exit(1)
 
 # -------------------------
 # Consolidate models and tests
 # -------------------------
-common_models = sorted(set(gpu_df['model']).union(cpu_df['model']))
-common_tests = sorted(set(gpu_df['test_name']).union(cpu_df['test_name']))
+if not gpu_df.empty and not cpu_df.empty:
+    common_models = sorted(set(gpu_df['model']).union(cpu_df['model']))
+    common_tests = sorted(set(gpu_df['test_name']).union(cpu_df['test_name']))
+elif not gpu_df.empty:
+    common_models = sorted(gpu_df['model'].unique())
+    common_tests = sorted(gpu_df['test_name'].unique())
+elif not cpu_df.empty:
+    common_models = sorted(cpu_df['model'].unique())
+    common_tests = sorted(cpu_df['test_name'].unique())
+else:
+    common_models = []
+    common_tests = []
 
 print(f"Found {len(common_models)} models and {len(common_tests)} tests.\n")
 
@@ -65,26 +85,42 @@ if not cpu_df.empty:
 # Combined Plots
 # -------------------------
 def plot_metric(metric, ylabel, title, filename):
-    plt.figure(figsize=(12,6))
-    for test in common_tests:
-        gpu_vals = []
-        cpu_vals = []
-        for model in common_models:
-            gpu_val = gpu_df[(gpu_df.model==model) & (gpu_df.test_name==test)][metric].mean() if not gpu_df.empty else 0
-            cpu_val = cpu_df[(cpu_df.model==model) & (cpu_df.test_name==test)][metric].mean() if not cpu_df.empty else 0
-            gpu_vals.append(gpu_val)
-            cpu_vals.append(cpu_val)
-        x = range(len(common_models))
-        plt.plot(x, gpu_vals, marker='o', label=f"{test} GPU")
-        plt.plot(x, cpu_vals, marker='x', linestyle='--', label=f"{test} CPU")
-    plt.xticks(range(len(common_models)), common_models, rotation=45, ha='right')
-    plt.ylabel(ylabel)
-    plt.title(title)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
-    print(f"🖼️ Saved plot: {filename}")
+    try:
+        plt.figure(figsize=(12,6))
+        for test in common_tests:
+            gpu_vals = []
+            cpu_vals = []
+            for model in common_models:
+                if not gpu_df.empty and metric in gpu_df.columns:
+                    gpu_data = gpu_df[(gpu_df.model==model) & (gpu_df.test_name==test)][metric]
+                    gpu_val = gpu_data.mean() if not gpu_data.empty else 0
+                else:
+                    gpu_val = 0
+                
+                if not cpu_df.empty and metric in cpu_df.columns:
+                    cpu_data = cpu_df[(cpu_df.model==model) & (cpu_df.test_name==test)][metric]
+                    cpu_val = cpu_data.mean() if not cpu_data.empty else 0
+                else:
+                    cpu_val = 0
+                
+                gpu_vals.append(gpu_val if pd.notna(gpu_val) else 0)
+                cpu_vals.append(cpu_val if pd.notna(cpu_val) else 0)
+            
+            x = range(len(common_models))
+            plt.plot(x, gpu_vals, marker='o', label=f"{test} GPU")
+            plt.plot(x, cpu_vals, marker='x', linestyle='--', label=f"{test} CPU")
+        
+        plt.xticks(range(len(common_models)), common_models, rotation=45, ha='right')
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(filename, dpi=150)
+        plt.close()
+        print(f"🖼️ Saved plot: {filename}")
+    except Exception as e:
+        print(f"Error creating plot {filename}: {e}")
 
 # Create plots folder
 PLOT_DIR = PROJECT_DIR / "benchmark_summary_plots"

@@ -26,8 +26,19 @@ error() { echo -e "${RED}$(timestamp) [ERROR]${RESET} $1" | tee -a "$LOGFILE"; }
 
 API_URL="http://localhost:11434/api/generate"
 
-# --- Models to test ---
-MODELS=( "deepseek-r1:7b" "deepseek-r1:14b" "gpt-oss:20b" "kimi-k2:1026b" )
+# --- Models to test (standardized with CPU benchmark) ---
+MODELS=(
+  "gpt-oss:20b"
+  "gpt-oss:120b"
+  "deepseek-r1:1.5b"
+  "deepseek-r1:7b"
+  "deepseek-r1:8b"
+  "deepseek-r1:14b"
+  "deepseek-r1:32b"
+  "deepseek-r1:70b"
+  "deepseek-r1:671b"
+  "kimi-k2:1026b"
+)
 
 # --- Prompts to test ---
 declare -A PROMPTS=(
@@ -65,6 +76,17 @@ print_row() {
   printf "%-20s %-12s %-8s %-10s %-10s %-10s %-10s %-10s\n" "$@"
 }
 
+# Check if Ollama service is running
+if ! pgrep -x ollama > /dev/null; then
+  error "Ollama service is not running. Please start it first: ollama serve"
+  exit 1
+fi
+
+# Check if GPU/ROCm is available
+if ! command -v rocm-smi &>/dev/null; then
+  warn "rocm-smi not found. GPU metrics may not be available."
+fi
+
 info "===== Ollama ROCm Benchmark Run #$NEXT_ID Started ====="
 print_header | tee -a "$LOGFILE"
 
@@ -87,9 +109,29 @@ for model in "${MODELS[@]}"; do
       -d "{\"model\": \"$model\", \"prompt\": \"$prompt\", \"stream\": false}")
     end=$(date +%s.%N)
 
+    # Check if API call was successful
+    if ! echo "$response" | jq -e '.response' > /dev/null 2>&1; then
+      error "API call failed for $model/$test. Response: $response"
+      continue
+    fi
+
     elapsed=$(echo "$end - $start" | bc)
-    output=$(echo "$response" | jq -r '.response')
-    tokens=$(echo "$output" | wc -w)
+    
+    # Handle division by zero
+    if [ "$(echo "$elapsed <= 0" | bc)" -eq 1 ]; then
+      warn "Elapsed time is zero or negative, skipping calculation"
+      elapsed="0.01"
+    fi
+
+    # Get token count from API response (eval_count = generated tokens)
+    tokens=$(echo "$response" | jq -r '.eval_count // 0')
+    if [ "$tokens" = "0" ] || [ -z "$tokens" ]; then
+      # Fallback: count words if eval_count is not available
+      output=$(echo "$response" | jq -r '.response // ""')
+      tokens=$(echo "$output" | wc -w)
+      warn "Using word count as fallback for token count"
+    fi
+    
     tokensec=$(echo "scale=2; $tokens / $elapsed" | bc)
 
     vram_after=$(gpu_metrics)
