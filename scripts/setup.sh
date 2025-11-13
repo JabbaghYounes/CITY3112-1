@@ -57,11 +57,7 @@ sudo apt update -y &
 spinner $!
 
 info "Installing dependencies..."
-sudo apt install -y tmux asciinema ttyrec python3 python3-pip curl snapd jq bc gnupg htop lm-sensors wget &
-spinner $!
-
-info "Installing Python packages..."
-python3 -m pip install --upgrade pip matplotlib pandas &
+sudo apt install -y tmux asciinema ttyrec python3 python3-pip curl snapd jq bc gnupg htop lm-sensors wget python3-matplotlib python3-pandas &
 spinner $!
 
 # ==========================================================

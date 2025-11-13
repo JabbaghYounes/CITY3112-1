@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==========================================================
-# fix.sh — Install missing dependencies found by check.sh
+# fix-deps.sh — Install missing dependencies found by check.sh
 # ==========================================================
 
 set -e
@@ -25,17 +25,11 @@ echo ""
 # 1. Install Python packages
 # ==========================================================
 step "1. Installing Python packages (matplotlib, pandas)..."
-info "Attempting to install via apt (recommended for system packages)..."
-if sudo apt install -y python3-matplotlib python3-pandas; then
-    info "Python packages installed successfully via apt"
+if python3 -m pip install --user matplotlib pandas; then
+    info "Python packages installed successfully"
 else
-    warn "apt installation failed, trying pip with --break-system-packages..."
-    if python3 -m pip install --break-system-packages --user matplotlib pandas; then
-        info "Python packages installed successfully via pip"
-    else
-        error "Failed to install Python packages via both methods"
-        exit 1
-    fi
+    error "Failed to install Python packages"
+    exit 1
 fi
 echo ""
 
