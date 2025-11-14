@@ -2,10 +2,6 @@
 
 Collection of scripts to setup environment, benchmark hardware and visualise results for local hardware testing
 
-## Demo
-
-![Demo GIF](https://via.placeholder.com/600x300?text=Demo+GIF)
-
 ## Installation
 ### Using Git
 ```bash
